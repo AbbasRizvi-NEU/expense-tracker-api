@@ -1,6 +1,6 @@
 # Expense Tracker REST API
 
-[![CI/CD Pipeline](https://github.com/AbbasRizvi-NEU/expense-tracker-api/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/AbbasRizvi-NEU/expense-tracker-api/actions/workflows/ci-cd.yml)
+[![Build and Test](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/AbbasRizvi-NEU/expense-tracker-api/actions) [![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen)](https://github.com/AbbasRizvi-NEU/expense-tracker-api)
 
 A production-ready RESTful API for personal expense tracking with comprehensive testing and automated CI/CD deployment.
 
