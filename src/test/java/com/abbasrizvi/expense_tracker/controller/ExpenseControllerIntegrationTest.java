@@ -13,8 +13,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -69,6 +75,100 @@ class ExpenseControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(expense)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createExpense_WithSameKeyAndPayload_ShouldReplayOriginalResponse() throws Exception {
+        String key = UUID.randomUUID().toString();
+        String body = expenseBody(25.50);
+        String original = postExpense(key, body);
+
+        assertEquals(original, postExpense(key, body));
+        assertEquals(1, repository.count());
+        mockMvc.perform(get("/api/expenses/summary"))
+                .andExpect(jsonPath("$.FOOD").value(25.50));
+    }
+
+    @Test
+    void createExpense_WithSameKeyAndDifferentPayload_ShouldReturn409() throws Exception {
+        String key = UUID.randomUUID().toString();
+        postExpense(key, expenseBody(25.50));
+
+        mockMvc.perform(post("/api/expenses")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(expenseBody(75.00)))
+                .andExpect(status().isConflict());
+
+        assertEquals(1, repository.count());
+        mockMvc.perform(get("/api/expenses/summary"))
+                .andExpect(jsonPath("$.FOOD").value(25.50));
+    }
+
+    @Test
+    void createExpense_WithConcurrentRetries_ShouldCreateOneExpense() throws Exception {
+        String key = UUID.randomUUID().toString();
+        String body = expenseBody(25.50);
+        var pool = Executors.newFixedThreadPool(2);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try {
+            var first = pool.submit(() -> {
+                ready.countDown();
+                assertTrue(start.await(10, TimeUnit.SECONDS));
+                return postExpense(key, body);
+            });
+            var second = pool.submit(() -> {
+                ready.countDown();
+                assertTrue(start.await(10, TimeUnit.SECONDS));
+                return postExpense(key, body);
+            });
+
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            assertEquals(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            assertEquals(1, repository.count());
+            mockMvc.perform(get("/api/expenses/summary"))
+                    .andExpect(jsonPath("$.FOOD").value(25.50));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void createExpense_AfterDeletingOriginal_ShouldReplayWithoutRecreatingExpense() throws Exception {
+        String key = UUID.randomUUID().toString();
+        String body = expenseBody(25.50);
+        String original = postExpense(key, body);
+        long id = objectMapper.readTree(original).get("id").asLong();
+        mockMvc.perform(delete("/api/expenses/{id}", id)).andExpect(status().isNoContent());
+
+        assertEquals(original, postExpense(key, body));
+        assertEquals(0, repository.count());
+    }
+
+    @Test
+    void createExpense_WithInvalidKey_ShouldReturn400() throws Exception {
+        mockMvc.perform(post("/api/expenses")
+                        .header("Idempotency-Key", "x".repeat(129))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(expenseBody(25.50)))
+                .andExpect(status().isBadRequest());
+        assertEquals(0, repository.count());
+    }
+
+    private String expenseBody(double amount) throws Exception {
+        return objectMapper.writeValueAsString(
+                new Expense("Lunch", amount, Category.FOOD, LocalDate.of(2025, 12, 15)));
+    }
+
+    private String postExpense(String key, String body) throws Exception {
+        return mockMvc.perform(post("/api/expenses")
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
     }
 
     @Test
