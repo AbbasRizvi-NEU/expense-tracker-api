@@ -3,6 +3,7 @@ package com.abbasrizvi.expense_tracker.controller;
 import com.abbasrizvi.expense_tracker.model.Category;
 import com.abbasrizvi.expense_tracker.model.Expense;
 import com.abbasrizvi.expense_tracker.service.ExpenseService;
+import com.abbasrizvi.expense_tracker.service.IdempotentExpenseCreation;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -17,15 +18,19 @@ import java.util.Map;
 public class ExpenseController {
 
     private final ExpenseService service;
+    private final IdempotentExpenseCreation expenseCreation;
 
     @Autowired
-    public ExpenseController(ExpenseService service) {
+    public ExpenseController(ExpenseService service, IdempotentExpenseCreation expenseCreation) {
         this.service = service;
+        this.expenseCreation = expenseCreation;
     }
 
     @PostMapping
-    public ResponseEntity<Expense> createExpense(@Valid @RequestBody Expense expense) {
-        Expense created = service.createExpense(expense);
+    public ResponseEntity<Expense> createExpense(
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody Expense expense) {
+        Expense created = expenseCreation.create(idempotencyKey, expense);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

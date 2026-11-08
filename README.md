@@ -50,6 +50,13 @@ GET /expenses/health
 Returns application health status.
 
 #### Create Expense
+
+Clients can send an optional `Idempotency-Key` header to safely retry an expense submission after a timeout. Generate a new key for each intended expense. A key must contain 1 to 128 printable ASCII characters without spaces.
+
+Retrying with the same key and expense fields returns the original `201 Created` response and creates no new expense. Reusing that key with different expense fields returns `409 Conflict`. Requests without a key keep the usual create behavior.
+
+The database stores the original response even if the expense is later edited or deleted. The default development database is in memory, so restarting the application clears both expenses and retry records.
+
 ```http
 POST /expenses
 Content-Type: application/json
